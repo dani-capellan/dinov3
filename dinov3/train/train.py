@@ -40,6 +40,11 @@ from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosi
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
 
+# added
+from dinov3.data.datasets_custom import load_dataset as custom_ld
+# from torch.utils.data import ConcatDataset
+# from cxr_datasets.generic import GenericCXRDataset
+
 assert torch.__version__ >= (2, 1)
 torch.backends.cuda.matmul.allow_tf32 = True  # pytorch 1.12 sets this to false by default
 torch.backends.cudnn.benchmark = False  # True
@@ -91,6 +96,9 @@ For python-based LazyConfig, use "path.key=value".
     parser.add_argument("--record_ref_losses", action="store_true", help="record reference losses")
     parser.add_argument("--ref_losses_path", default="", type=str)
     parser.add_argument("--multi-distillation", action="store_true", help="run multi-distillation")
+    
+    # added
+    parser.add_argument("--local-rank", type=int, default=0, help="local rank for distributed training")
 
     return parser
 
@@ -306,11 +314,33 @@ def build_data_loader_from_cfg(
     batch_size = dataloader_batch_size_per_gpu
     num_workers = cfg.train.num_workers
     dataset_path = cfg.train.dataset_path
-    dataset = make_dataset(
-        dataset_str=dataset_path,
-        transform=model.build_data_augmentation_dino(cfg),
-        target_transform=lambda _: (),
-    )
+    
+    # dataset = make_dataset(
+    #     dataset_str=dataset_path,
+    #     transform=model.build_data_augmentation_dino(cfg),
+    #     target_transform=lambda _: (),
+    # )
+    
+    # if hasattr(cfg.train, "dataset_paths"):
+    #     datasets = [
+    #         GenericCXRDataset(
+    #             manifest_path=p,
+    #             transforms=model.build_data_augmentation_dino(cfg),
+    #             target_transform=lambda _: (),
+    #             backend="file"
+    #         )
+    #         for p in cfg.train.dataset_paths
+    #     ]
+    #     dataset = ConcatDataset(datasets)
+    # else:
+    #     dataset = GenericCXRDataset(
+    #         manifest_path=cfg.train.dataset_path,
+    #         transforms=model.build_data_augmentation_dino(cfg),
+    #         target_transform=lambda _: (),
+    #         backend="file"
+    #     )
+
+    dataset, _ = custom_ld.build_dataset(cfg, trnsfrm=model.build_data_augmentation_dino(cfg))
 
     if isinstance(dataset, torch.utils.data.IterableDataset):
         sampler_type = SamplerType.INFINITE
@@ -432,7 +462,7 @@ def do_train(cfg, model, resume=False):
     metrics_file = os.path.join(cfg.train.output_dir, "training_metrics.json")
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
     # Manual garbage collection
-    gc.disable()
+    # gc.disable()
     gc.collect()
 
     # Training loop

@@ -739,21 +739,57 @@ class SSLMetaArch(nn.Module):
             torch._foreach_mul_(gramteacher_param_list, m)
             torch._foreach_add_(gramteacher_param_list, teacher_param_list, alpha=1 - m)
 
+    # def build_data_augmentation_dino(self, cfg):
+    #     return DataAugmentationDINO(
+    #         cfg.crops.global_crops_scale,
+    #         cfg.crops.local_crops_scale,
+    #         cfg.crops.local_crops_number,
+    #         global_crops_size=cfg.crops.global_crops_size,
+    #         local_crops_size=cfg.crops.local_crops_size,
+    #         gram_teacher_crops_size=cfg.crops.gram_teacher_crops_size,
+    #         gram_teacher_no_distortions=cfg.crops.gram_teacher_no_distortions,
+    #         local_crops_subset_of_global_crops=cfg.crops.localcrops_subset_of_globalcrops,
+    #         share_color_jitter=cfg.crops.share_color_jitter,
+    #         horizontal_flips=cfg.crops.horizontal_flips,
+    #         mean=cfg.crops.rgb_mean,
+    #         std=cfg.crops.rgb_std,
+    #     )
+
     def build_data_augmentation_dino(self, cfg):
-        return DataAugmentationDINO(
-            cfg.crops.global_crops_scale,
-            cfg.crops.local_crops_scale,
-            cfg.crops.local_crops_number,
-            global_crops_size=cfg.crops.global_crops_size,
-            local_crops_size=cfg.crops.local_crops_size,
-            gram_teacher_crops_size=cfg.crops.gram_teacher_crops_size,
-            gram_teacher_no_distortions=cfg.crops.gram_teacher_no_distortions,
-            local_crops_subset_of_global_crops=cfg.crops.localcrops_subset_of_globalcrops,
-            share_color_jitter=cfg.crops.share_color_jitter,
-            horizontal_flips=cfg.crops.horizontal_flips,
-            mean=cfg.crops.rgb_mean,
-            std=cfg.crops.rgb_std,
-        )
+        """
+        Builds data augmentation pipeline.
+        Switches between vanilla DINOv3 augmentations (default)
+        and CXR-specific augmentations (if cfg.crops.cxr_aug is True).
+        """
+
+        if hasattr(cfg.crops, "cxr_aug") and cfg.crops.cxr_aug:
+            # Use CXR-specific augmentations
+            return DataAugmentationCXR(
+                global_crops_scale=cfg.crops.global_crops_scale,
+                local_crops_scale=cfg.crops.local_crops_scale,
+                local_crops_number=cfg.crops.local_crops_number,
+                global_crops_size=cfg.crops.global_crops_size,
+                local_crops_size=cfg.crops.local_crops_size,
+                horizontal_flips=cfg.crops.horizontal_flips,
+                mean=cfg.crops.rgb_mean,
+                std=cfg.crops.rgb_std,
+            )
+        else:
+            # Use vanilla DINOv3 augmentations
+            return DataAugmentationDINO(
+                cfg.crops.global_crops_scale,
+                cfg.crops.local_crops_scale,
+                cfg.crops.local_crops_number,
+                global_crops_size=cfg.crops.global_crops_size,
+                local_crops_size=cfg.crops.local_crops_size,
+                gram_teacher_crops_size=cfg.crops.gram_teacher_crops_size,
+                gram_teacher_no_distortions=cfg.crops.gram_teacher_no_distortions,
+                local_crops_subset_of_global_crops=cfg.crops.localcrops_subset_of_globalcrops,
+                share_color_jitter=cfg.crops.share_color_jitter,
+                horizontal_flips=cfg.crops.horizontal_flips,
+                mean=cfg.crops.rgb_mean,
+                std=cfg.crops.rgb_std,
+            )
 
     def get_maybe_fused_params_for_submodel(self, m: nn.Module):
         params_groups = get_params_groups_with_decay_fsdp(
