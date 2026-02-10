@@ -311,12 +311,7 @@ class SSLMetaArch(nn.Module):
                 init_fsdp_model_from_checkpoint(
                     self.gram_teacher,
                     self.gram_ckpt,
-                    skip_load_keys=[
-                        "dino_head",
-                        "ibot_head",
-                        "dino_loss.center",
-                        "ibot_patch_loss.center",
-                    ],
+                    skip_load_keys=self.cfg.gram.ckpt_skip_keys,
                     keys_not_sharded=["backbone.rope_embed.periods", "qkv.bias_mask"],
                     process_group=distributed.get_default_process_group(),
                 )
@@ -330,7 +325,7 @@ class SSLMetaArch(nn.Module):
             init_fsdp_model_from_checkpoint(
                 self.student,
                 self.cfg.student.resume_from_teacher_chkpt,
-                skip_load_keys=["dino_loss.center", "ibot_patch_loss.center"],
+                skip_load_keys=self.cfg.student.resume_from_teacher_chkpt_skip_keys,
                 keys_not_sharded=["backbone.rope_embed.periods", "qkv.bias_mask"],
                 process_group=distributed.get_process_subgroup(),
             )
@@ -423,7 +418,8 @@ class SSLMetaArch(nn.Module):
             iteration=iteration,
         )
 
-        self.backprop_loss(loss_accumulator)
+        accum_steps = getattr(self.cfg.optim, "gradient_accumulation_steps", 1)
+        self.backprop_loss(loss_accumulator / accum_steps)
 
         # Return total weighted loss and a dict of metrics to log
         return loss_accumulator, metrics_dict | loss_dict

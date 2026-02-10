@@ -41,7 +41,7 @@ from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
 
 # added
-from dinov3.data.datasets_custom import load_dataset as custom_ld
+import dinov3.data.cxr_datasets as custom_ld
 # from torch.utils.data import ConcatDataset
 # from cxr_datasets.generic import GenericCXRDataset
 
@@ -510,22 +510,26 @@ def do_train(cfg, model, resume=False):
         last_layer_lr = last_layer_lr_schedule[it]
         apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
 
+        accum_steps = getattr(cfg.optim, "gradient_accumulation_steps", 1)
+
         # Forward backward
-        optimizer.zero_grad(set_to_none=True)
+        if iteration % accum_steps == 0:
+            optimizer.zero_grad(set_to_none=True)
         total_loss, metrics_dict = model.forward_backward(data, teacher_temp=teacher_temp, iteration=it)
 
-        # Gradient clipping
-        if cfg.optim.clip_grad:
-            for k, v in student.items():
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    v.parameters(),
-                    max_norm=cfg.optim.clip_grad,
-                )
-                metrics_dict[f"{k}_grad_norm"] = (
-                    grad_norm.full_tensor().item()
-                    if isinstance(grad_norm, torch.distributed.tensor.DTensor)
-                    else grad_norm.item()
-                )
+        if (iteration + 1) % accum_steps == 0:
+            # Gradient clipping
+            if cfg.optim.clip_grad:
+                for k, v in student.items():
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        v.parameters(),
+                        max_norm=cfg.optim.clip_grad,
+                    )
+                    metrics_dict[f"{k}_grad_norm"] = (
+                        grad_norm.full_tensor().item()
+                        if isinstance(grad_norm, torch.distributed.tensor.DTensor)
+                        else grad_norm.item()
+                    )
 
         # Reduce total_loss to check for NaNs, reduce metrics for logging
         total_loss_all_ranks = total_loss.new_empty(distributed.get_subgroup_size())
@@ -557,9 +561,11 @@ def do_train(cfg, model, resume=False):
                 raise RuntimeError(msg)
         else:
             consecutive_nan_count = 0
+            
         # Step optimizer
-        optimizer.step()
-        model.update_ema(mom)
+        if (iteration + 1) % accum_steps == 0:
+            optimizer.step()
+            model.update_ema(mom)
 
         # [GRAM] Update gram teacher when using gram teacher and frequent updates
         if (
